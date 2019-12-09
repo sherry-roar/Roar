@@ -1,406 +1,438 @@
-# [深度应用]·DC竞赛轴承故障检测开源Baseline（基于Keras1D卷积 val_acc:0.99780）
-
-> 个人网站--> [http://www.yansongsong.cn](http://www.yansongsong.cn/)
-> 
-> Github项目地址--> [https://github.com/xiaosongshine/bearing_detection_by_conv1d](https://github.com/xiaosongshine/bearing_detection_by_conv1d)
-
+数据挖掘竞赛报告----轴承故障诊断训练赛
+饶逸卓 计算机学院 XS19020003
+	问题的描述
+	问题背景
+轴承是在机械设备中具有广泛应用的关键部件之一。由于过载，疲劳，磨损，腐蚀等原因，轴承在机器操作过程中容易损坏。所以我们需要对轴承的状态进行监测和分析。通常我们会监测轴承的振动信号。
+本次比赛提供一个真实的轴承振动信号数据集，需要我们使用机器学习技术判断轴承的工作状态。
+轴承的故障一般有3种故障：外圈故障，内圈故障，滚珠故障，外加正常的工作状态。如表1所示，结合轴承的3种直径（直径1,直径2,直径3），轴承的工作状态有10类如表1所示。
+表 1 轴承故障类别
+ 
+我们需要设计一个模型根据轴承运行过程中的振动信号对轴承的工作状态进行分类。
+	问题数据
+本次竞赛提供了两个用csv形式存放的数据集train.csv和test_data.csv。训练集数据的1到6000为按时间序列连续采样的振动信号数值，每行数据是一个样本，共792条数据，第一列id字段为样本编号，最后一列label字段为标签数据，即轴承的工作状态，用数字0到9表示。测试集数据，共528条数据，除无label字段外，其他字段同训练集。
+	模型评价指标
+本次任务的评价指标采用的是F1指标的算术平均值，它是Precision 和 Recall 的调和平均数。其中，Pi是表示第i个种类对应的Precision， Ri是表示第i个种类对应Recall，如（1）式所示。
+F1=1nn1F1i=1nn12∙Pi∙RiPi+Ri                                                   (1)
+	求解思路
+首先根据问题的描述，可以看出，这是一个多分类的问题，并且数据维度只有一维，所以我们可以采用卷积神经网络来解决它。
+我们的设计思路就是设计一个没有反馈回路的简单序贯神经网络模型，将每一行6000个数据作为神经网络的一个输入，然后得到10个不同的分类。我们假定6000行数据是独立同分布的。
+	求解过程
+	数据预处理
+首先观察数据，我们提取出一次采样的一组数据一共6000个按序列画出来如下图1的(a)和(b)所示。
+      
+(a)                                   (b)
+图 1 一组振动数据，(a) 和(b)分别为不同类型的振动数据
+一组数据波动的范围很大，不同组数据的动态分别范围也很大。有的组的数据波动范围很小在[-0.2-,0.2]之间如图1(a)，有的波动很大如图1(b)，这可能是由于不同数据的不同特征造成的，所以我们继续下一步的分析。
+接下来我们对我们检验一下数据是否的缺失值。经检验，所有数据中不存在缺失数据（None），但是存在很多0数据。于是我们画出数据统计直方图，如图2所示。从数据统计直方图中我们可以看出数据基本符合正态分布特征，所以很多0数据是正常数据，故不需要处理。
+ 
+图 2 统计数据直方图
+然后画出同一组数据的箱型图进行分析，从数据的箱型图图3发现数据存在部分离群点，统计得到这一组数据的上限以上离群点有10个，下限以下的离群点有36个，占数据总数的0.7%；但是取出另外的数据如图4所示，它上限以上的离群点有412个，下限以下的离群点有405数据总数的13.6%；综合统计所有数据的离群点个数占数据总数的4.9%，在5%以下，所以不对离群点进行处理。
+经过以上分析基本可以看出本次竞赛给定数据质量较高，有利于我们进行神经网络的学习与建模。
+ 
+图 3 数据统计箱型图1，离群点占比0.7%
+ 
+图 4 数据统计箱型图2，离群点占比13.6%
+由于数据是振动信号，所以我们继续使用信号分析的方法进一步探索数据。首先假设采样频率为1Hz，对数据进行傅里叶变化得到如下图，从图中可以看出每一组数据的特征频率非常明显，但是同时也包含了很多噪声频率如图5所示。
+     
+图 5 数据傅里叶变化图
+同样的，我们采用信号分析的方法，首先使用小波变换对杂波进行滤波处理，使用db8小波，阈值0.04对噪声进行过滤，结果如图6所示。从处理之后的频谱图看到，部分高频信号被滤除了，但是低平零碎的信号没有过滤干净，所以下一步我打算直接对信号进行带通滤波。
+ 
+图 6 小波变换后数据频谱图
+使用傅里叶变换，对低于20%以下的频谱分量直接置零，然后重构得到滤波后的数据，结果如图7所示。数据就变得比较干净，然后我们将处理后的数据可以直接输入神经网络进行学习了。
+ 
+图 7 带通滤波后数据频谱图
+但是由于我们的滤波可能会滤去了信号的关键信息，神经网络可以自己挖掘数据特征，所以我们实验的时候同时对处理后和处理前的数据都输入神经网络进行训练。最终检测他们训练模型的准确性。
+	构建模型
+我们建立神经网络模型使用的是基于python和tensorflow的keras库，这个库自己内置了许多预训练的模型，方便我们调用，同时也可以通过很简单的操作自己搭建自己的神经网络模型。我们没有使用预训练的模型，只是自己使用一维卷积搭建了一个神经网络模型。主要调用了以下三个库，分别是网络层，模型和训练优化器的几个库。
+ 
+图 8 实验用的的主要库函数
+由于数据量巨大，所以我们先写了一个生成器，分批将数据输入神经网络，基于设备性能考虑，我的batch_size设置为40个，将原始数据集分640组数据用于训练，剩下154组数据用于测试。生成器模型如下图9所示。
+ 
+图 9 生成器函数
+ 
+图 10 贯序神经网络模型结构
+接着我们使用使用keras自带的sequential模型建立一个简单的14层的神经网络，激活函数使用Relu函数每层做两次一维卷积，再做一次maxpooling池化，最后在做一次全局均值池化，然后做一层是全连接层，为防止模型陷入局部最优，我们的dropout参数设置为0.3，模型生成的参数如图11所示。
+ 
+ 
+图 11 神经网络参数
+设置好以上参数之后开始训练，分别将经过预处理的模型和未经预处理的模型送入网络训练。
+	结果分析
+神经网络训练的结果如图12(a)和(b)所示。
+ 
+(a)
+ 
+(b)
+图 12 神经网络训练结果，(a)为经过数据预处理的数据训练结果，(b)为原始数据训练结果
+从图12(b)看到未处理的数据在训练集和测试集上的准确度达到了100%，但是处理后的数据只有97%左右。造成这种情况的原因一方面有可能是处理后的数据损失了数据特征信息，另一方面可能是由于网络参数的调整不匹配
+图13给出了训练过程loss的下降曲线，可以看出由于训练数据量较大，所以训练的loss下降平稳但是测试数据由于测试集样本较少会产生波动。Loss在大约20次迭代的时候基本收敛，说明我们的模型参数设置比较好，而且最终也并未出现过拟合的情况。
+ 
+图 13 loss下降曲线
+ 
+(a)
+ 
+(b)
+图 14 竞赛成绩，(a)是数据预处理后训练的模型，(b)是原始数据训练的模型
+我分别将预处理训练的模型和未预处理训练的模型用于竞赛成绩提交检验，结果如图14所示，最终准确度最高的是原始数据直接训练的模型为0.997，排名62名。
+	总结
+	问题总结1----为什么数据预处理不管用？
+对于为什么数据经过预处理没有原始数据训练的模型更优，询问老师之后发现了原因，因为傅里叶变换本质就是做卷积运算提取特征，而在神经网络中设置了卷积层，作用与傅里叶变换是一样的，并且多次提取特征进行学习了，所以不需要再做傅里叶变换对数据进行操作了，而经过小波滤波的操作在一定程度上可以减小数据量大小，加速神经网络训练，而傅里叶变换阈值滤波很大程度上使得数据特征损失了，所以使得精度降低了。
   
-
-## 大赛简介
-
-轴承是在机械设备中具有广泛应用的关键部件之一。由于过载，疲劳，磨损，腐蚀等原因，轴承在机器操作过程中容易损坏。事实上，超过50％的旋转机器故障与轴承故障有关。实际上，滚动轴承故障可能导致设备剧烈摇晃，设备停机，停止生产，甚至造成人员伤亡。一般来说，早期的轴承弱故障是复杂的，难以检测。因此，轴承状态的监测和分析非常重要，它可以发现轴承的早期弱故障，防止故障造成损失。 最近，轴承的故障检测和诊断一直备受关注。在所有类型的轴承故障诊断方法中，振动信号分析是最主要和有用的工具之一。 在这次比赛中，我们提供一个真实的轴承振动信号数据集，选手需要使用机器学习技术判断轴承的工作状态。
-
-[竞赛网站](http://www.pkbigdata.com/common/cmpt/%E8%BD%B4%E6%89%BF%E6%95%85%E9%9A%9C%E6%A3%80%E6%B5%8B%E8%AE%AD%E7%BB%83%E8%B5%9B_%E6%8E%92%E8%A1%8C%E6%A6%9C.html)
-
+(0)                                      (1)
   
-
-## 数据介绍
-
-轴承有3种故障：外圈故障，内圈故障，滚珠故障，外加正常的工作状态。如表1所示，结合轴承的3种直径（直径1,直径2,直径3），轴承的工作状态有10类：
-
-![](https://img-blog.csdnimg.cn/20190926141237674.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly94aWFvc29uZ3NoaW5lLmJsb2cuY3Nkbi5uZXQ=,size_16,color_FFFFFF,t_70)![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")​
-
-**参赛选手需要设计模型根据轴承运行中的振动信号对轴承的工作状态进行分类。**
-
+(2)                                      (3)
   
-
-1.train.csv，训练集数据，1到6000为按时间序列连续采样的振动信号数值，每行数据是一个样本，共792条数据，第一列id字段为样本编号，最后一列label字段为标签数据，即轴承的工作状态，用数字0到9表示。
-
-2.test_data.csv，测试集数据，共528条数据，除无label字段外，其他字段同训练集。 总的来说，每行数据除去id和label后是轴承一段时间的振动信号数据，选手需要用这些振动信号去判定轴承的工作状态label。
-
-注意：同一列的数据不一定是同一个时间点的采样数据，即不要把每一列当作一个特征
-
+(4)                                      (5)
   
-
-**[点击下载数据](http://mad-net.org:8765/explore.html?t=0.5831516555847212)**
-
+(6)                                      (7)
   
-
-***数据下载具体操作：**
-
-![](https://img-blog.csdnimg.cn/2019092614125199.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly94aWFvc29uZ3NoaW5lLmJsb2cuY3Nkbi5uZXQ=,size_16,color_FFFFFF,t_70)![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")​
-
-**ps：注册登陆后方可下载**
-
+(8)                                      (9)
+图 15 各类故障及其对应的频谱图，(1)~(9)为1~9种故障(0)为正常数据
+Sequential 序贯模型
+　　序贯模型是函数式模型的简略版，为最简单的线性、从头到尾的结构顺序，不分叉，是多个网络层的线性堆叠。
+　　Keras实现了很多层，包括core核心层，Convolution卷积层、Pooling池化层等非常丰富有趣的网络结构。
+我们可以通过将层的列表传递给Sequential的构造函数，来创建一个Sequential模型。
+1
+2
+3
+4
+5
+6
+7
+8
+9	from keras.models import Sequential
+from keras.layers import Dense, Activation
+ 
+model = Sequential([
+    Dense(32, input_shape=(784,)),
+    Activation('relu'),
+    Dense(10),
+    Activation('softmax'),
+])
+ 　　也可以使用.add()方法将各层添加到模型中：
+1
+2
+3	model = Sequential()
+model.add(Dense(32, input_dim=784))
+model.add(Activation('relu'))
+ 指定输入数据的尺寸
+　　模型需要知道它所期待的输入的尺寸（shape）。出于这个原因，序贯模型中的第一层（只有第一层，因为下面的层可以自动的推断尺寸）需要接收关于其输入尺寸的信息，后面的各个层则可以自动的推导出中间数据的shape，因此不需要为每个层都指定这个参数。有以下几种方法来做到这一点：
+	传递一个input_shape参数给第一层。它是一个表示尺寸的元组（一个整数或None的元组，其中None表示可能为任何正整数）。在input_shape中不包含数据的batch大小。
+	某些 2D 层，例如 Dense，支持通过参数 input_dim 指定输入尺寸，某些 3D 时序层支持 input_dim 和 input_length 参数。
+	如果你需要为你的输入指定一个固定的 batch 大小（这对 stateful RNNs 很有用），你可以传递一个 batch_size 参数给一个层。如果你同时将 batch_size=32 和 input_shape=(6, 8) 传递给一个层，那么每一批输入的尺寸就为 (32，6，8)。
+　因此下面的代码是等价的。
+1
+2
+3
+4
+5	model = Sequential()
+model.add(Dense(32, input_shape=(784,)))
+ 
+model = Sequential()
+model.add(Dense(32, input_dim=784))
+下面三种方法也是严格等价的
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10	model = Sequential()
+model.add(LSTM(32, input_shape=(10, 64)))
+ 
+ 
+model = Sequential()
+model.add(LSTM(32, batch_input_shape=(None, 10, 64)))
+ 
+ 
+model = Sequential()
+model.add(LSTM(32, input_length=10, input_dim=64))
+但是使用傅里叶变换之后我们可以看出更多数据特征，比如图15我们展示了1到9种不同的故障情况以及正常轴承振动的频谱图，从图中我们基本可以看出不同情况对应的频谱特征有关联，可以进行下一步的关联分析。虽然关联分析对数据分类的精确度不及神经网络的精确度，但是关联分析可以使我们学习的数据具有可解释性，从而引导故障检测者进一步分析问题。
+同时从这些数据中我们也可以发现，经过傅里叶滤波后的数据损失了大部分信息，这也是为什么数据处理之后训练准确度降低。
+	问题总结2----对数据的进一步分析
+我又重新对数据进行了分析，发现给定的样本类不平衡，如图16所示，0，7，9类样本数目明显多于其他样本，而我们划分训练集的时候采用的随机划分的策略， 可能会导致训练样本和测试样本都存在类不平衡的问题，解决问题的方法可以手动重新划分数据集，删去一部分数据集，使其平衡。
+ 
+图 16 统计各类样本个数
+在继续分析数据的途中，我发现我对数据没有进行一致性检验，和一致性处理。从图17上可以看出，即使是同 一组数据，其特征频率也可能不尽相同，所以在输入神经网络之前应该对数据进行一致性处理。
   
-
-----------
-
-**评分标准**
-
-评分算法  
-binary-classification
-
-采用各个品类F1指标的算术平均值，它是Precision 和 Recall 的调和平均数。
-
-![](https://img-blog.csdnimg.cn/20190926141308214.png)![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")​
-
-其中，Pi是表示第i个种类对应的Precision， Ri是表示第i个种类对应Recall。
-
+(a)                                      (b)
   
-
-## 赛题分析
-
-简单分析一下，这个比赛大家可以简单的理解为一个10分类的问题，输入的形状为(-1,6000)，网络输出的结果为(-1,10)（此处采用onehot形式）
-
-赛题就是一个十分类预测问题，解题思路应该包括以下内容
-
-1.  数据读取与处理
-2.  网络模型搭建
-3.  模型的训练
-4.  模型应用与提交预测结果
-
+(c)                                      (d)
   
+(e)                                      (f)
+图 17 同一类数据一致性分析
+	个人小结
+我本科学习的专业是电气相关的，做过信号分析，而这次比赛的项目也是我第一次使用神经网络进行数据处理，也是我第一次独立完成了一个完整的神经网络的项目，做了数据的预处理，提取标签转换成onehot，构造生成器，最后建立模型，使我学到了许多。
+得益于keras的集成性，我能很快使用keras搭建一个神经网络模型，同时keras也包含许多内置的预训练模型，所以我自己也能尝试写一个简单的神经网络模型。
+虽然我数据的预处理没有做好，但是训练的准确度依旧高的，我觉得很大原因是因为这次训练赛的数据质量较高，而且模型参数设置合理（我是参照网上其他人的帖子设置的参数），最后训练速度也很快。
+接下来我准备用keras做一下图像数据的分类实验，在公开的caltech256数据集上进行实验来进一步学习这个工具，同时也应该对数据工程上多下功夫考虑。
+
+
+概述
+许多技术文章都关注于二维卷积神经网络（2D CNN）的使用，特别是在图像识别中的应用。而一维卷积神经网络（1D CNNs）只在一定程度上有所涉及，比如在自然语言处理（NLP）中的应用。目前很少有文章能够提供关于如何构造一维卷积神经网络来解决你可能正面临的一些机器学习问题。本文试图补上这样一个短板。
+ 
+ 
+ 
+ 
+ 
+ 
+何时应用 1D CNN？
+CNN 可以很好地识别出数据中的简单模式，然后使用这些简单模式在更高级的层中生成更复杂的模式。当你希望从整体数据集中较短的（固定长度）片段中获得感兴趣特征，并且该特性在该数据片段中的位置不具有高度相关性时，1D CNN 是非常有效的。
+1D CNN 可以很好地应用于传感器数据的时间序列分析（比如陀螺仪或加速度计数据）；同样也可以很好地用于分析具有固定长度周期的信号数据（比如音频信号）。此外，它还能应用于自然语言处理的任务（由于单词的接近性可能并不总是一个可训练模式的好指标，因此 LSTM 网络在 NLP 中的应用更有前途）。
+1D CNN 和 2D CNN 之间有什么区别？
+无论是一维、二维还是三维，卷积神经网络（CNNs）都具有相同的特点和相同的处理方法。关键区别在于输入数据的维数以及特征检测器（或滤波器）如何在数据之间滑动：
+ 
+ 
+ 
+ 
+ 
+ 
+“一维和二维卷积神经网络” 由 Nils Ackermann 在知识共享许可 CC BY-ND 4.0 下授权。
+问题描述
+在本文中，我们将专注于基于时间片的加速度传感器数据的处理，这些数据来自于用户的腰带式智能手机设备。基于 x、y 和 z 轴的加速度计数据，1D CNN 用来预测用户正在进行的活动类型（比如“步行”、“慢跑”或“站立”）。你可以在我的另外两篇文章中找到更多的信息 这里 和 这里。对于各种活动，在每个时间间隔上的数据看起来都与此类似。
+ 
+ 
+来自加速度计数据的时间序列样例
+如何在 PYTHON 中构造一个 1D CNN？
+目前已经有许多得标准 CNN 模型可用。我选择了 Keras 网站 上描述的一个模型，并对它进行了微调，以适应前面描述的问题。下面的图片对构建的模型进行一个高级概述。其中每一层都将会进一步加以解释。
+ 
+ 
+“一维卷积神经网络示例”由 Nils Ackermann 在知识共享许可 CC BY-ND 4.0 下授权。
+让我们先来看一下对应的 Python 代码，以便构建这个模型：
+	model_m = Sequential()
+	model_m.add(Reshape((TIME_PERIODS, num_sensors), input_shape=(input_shape,)))
+	model_m.add(Conv1D(100, 10, activation='relu', input_shape=(TIME_PERIODS, num_sensors)))
+	model_m.add(Conv1D(100, 10, activation='relu'))
+	model_m.add(MaxPooling1D(3))
+	model_m.add(Conv1D(160, 10, activation='relu'))
+	model_m.add(Conv1D(160, 10, activation='relu'))
+	model_m.add(GlobalAveragePooling1D())
+	model_m.add(Dropout(0.5))
+	model_m.add(Dense(num_classes, activation='softmax'))
+	print(model_m.summary())
+运行这段代码将得到如下的深层神经网络：
+	_________________________________________________________________
+	Layer (type)                 Output Shape              Param #   
+	=================================================================
+	reshape_45 (Reshape)         (None, 80, 3)             0         
+	_________________________________________________________________
+	conv1d_145 (Conv1D)          (None, 71, 100)           3100      
+	_________________________________________________________________
+	conv1d_146 (Conv1D)          (None, 62, 100)           100100    
+	_________________________________________________________________
+	max_pooling1d_39 (MaxPooling (None, 20, 100)           0         
+	_________________________________________________________________
+	conv1d_147 (Conv1D)          (None, 11, 160)           160160    
+	_________________________________________________________________
+	conv1d_148 (Conv1D)          (None, 2, 160)            256160    
+	_________________________________________________________________
+	global_average_pooling1d_29  (None, 160)               0         
+	_________________________________________________________________
+	dropout_29 (Dropout)         (None, 160)               0         
+	_________________________________________________________________
+	dense_29 (Dense)             (None, 6)                 966       
+	=================================================================
+	Total params: 520,486
+	Trainable params: 520,486
+	Non-trainable params: 0
+	_________________________________________________________________
+	None
+
+
+让我们深入到每一层中，看看到底发生了什么：
+	输入数据： 数据经过预处理后，每条数据记录中包含有 80 个时间片（数据是以 20Hz 的采样频率进行记录的，因此每个时间间隔中就包含有 4 秒的加速度计数据）。在每个时间间隔内，存储加速度计的 x 轴、 y 轴和 z 轴的三个数据。这样就得到了一个 80 x 3 的矩阵。由于我通常是在 iOS 系统中使用神经网络的，所以数据必须平展成长度为 240 的向量后传入神经网络中。网络的第一层必须再将其变形为原始的 80 x 3 的形状。
+	第一个 1D CNN 层： 第一层定义了高度为 10（也称为卷积核大小）的滤波器（也称为特征检测器）。只有定义了一个滤波器，神经网络才能够在第一层中学习到一个单一的特征。这可能还不够，因此我们会定义 100 个滤波器。这样我们就在网络的第一层中训练得到 100 个不同的特性。第一个神经网络层的输出是一个 71 x 100 的矩阵。输出矩阵的每一列都包含一个滤波器的权值。在定义内核大小并考虑输入矩阵长度的情况下，每个过滤器将包含 71 个权重值。
+	第二个 1D CNN 层： 第一个 CNN 的输出结果将被输入到第二个 CNN 层中。我们将在这个网络层上再次定义 100 个不同的滤波器进行训练。按照与第一层相同的逻辑，输出矩阵的大小为 62 x 100。
+	最大值池化层： 为了减少输出的复杂度和防止数据的过拟合，在 CNN 层之后经常会使用池化层。在我们的示例中，我们选择了大小为 3 的池化层。这意味着这个层的输出矩阵的大小只有输入矩阵的三分之一。
+	第三和第四个 1D CNN 层： 为了学习更高层次的特征，这里又使用了另外两个 1D CNN 层。这两层之后的输出矩阵是一个 2 x 160 的矩阵。
+	平均值池化层： 多添加一个池化层，以进一步避免过拟合的发生。这次的池化不是取最大值，而是取神经网络中两个权重的平均值。输出矩阵的大小为 1 x 160 。每个特征检测器在神经网络的这一层中只剩下一个权重。
+	Dropout 层： Dropout 层会随机地为网络中的神经元赋值零权重。由于我们选择了 0.5 的比率，则 50% 的神经元将会是零权重的。通过这种操作，网络对数据的微小变化的响应就不那么敏感了。因此，它能够进一步提高对不可见数据处理的准确性。这个层的输出仍然是一个 1 x 160 的矩阵。
+	使用 Softmax 激活的全连接层： 最后一层将会把长度为 160 的向量降为长度为 6 的向量，因为我们有 6 个类别要进行预测（即 “慢跑”、“坐下”、“走路”、“站立”、“上楼”、“下楼”）。这里的维度下降是通过另一个矩阵乘法来完成的。Softmax 被用作激活函数。它强制神经网络的所有六个输出值的加和为一。因此，输出值将表示这六个类别中的每个类别出现的概率
+“预测和结果矩阵”由 Nils Ackermann 在知识共享 CC BY-ND 4.0 许可下授权。
+	精确度（Accuracy）： 正确预测的结果与所有预测的结果总和之比。即 ((TP + TN) / (TP + TN + FP + FN))
+	精度（Precision）： 当模型预测为正样本时，它是对的吗？所有的正确预测的正样本除以所有的正样本预测。即 (TP / (TP + FP))
+	召回率（Recall）： 为模型识别出的所有正样本中有多少是正确预测的正样本？正确预测的正样本除以所有的正样本预测。即 (TP / (TP + FN))
+	F1值（F1-score）： 是精度和召回率的加权平均值。即 (2 x recall x precision / (recall + precision))
+池化操作后的结果相比其输入缩小了。池化层的引入是仿照人的视觉系统对视觉输入对象进行降维和抽象。在卷积神经网络过去的工作中，研究者普遍认为池化层有如下三个功效：
+　　1.特征不变形：池化操作是模型更加关注是否存在某些特征而不是特征具体的位置。
+　　2.特征降维：池化相当于在空间范围内做了维度约减，从而使模型可以抽取更加广范围的特征。同时减小了下一层的输入大小，进而减少计算量和参数个数。
+　　3.在一定程度上防止过拟合，更方便优化。
+
+•  x：输入数据。如果模型只有一个输入，那么x的类型是numpy
+array，如果模型有多个输入，那么x的类型应当为list，list的元素是对应于各个输入的numpy array 
+•  y：标签，numpy array 
+•  batch_size：整数，指定进行梯度下降时每个batch包含的样本数。训练时一个batch的样本会被计算一次梯度下降，使目标函数优化一步。 
+•  epochs：整数，训练终止时的epoch值，训练将在达到该epoch值时停止，当没有设置initial_epoch时，它就是训练的总轮数，否则训练的总轮数为epochs - inital_epoch 
+•  verbose：日志显示，0为不在标准输出流输出日志信息，1为输出进度条记录，2为每个epoch输出一行记录 
+•  callbacks：list，其中的元素是keras.callbacks.Callback的对象。这个list中的回调函数将会在训练过程中的适当时机被调用，参考回调函数 
+•  validation_split：0~1之间的浮点数，用来指定训练集的一定比例数据作为验证集。验证集将不参与训练，并在每个epoch结束后测试的模型的指标，如损失函数、精确度等。注意，validation_split的划分在shuffle之前，因此如果你的数据本身是有序的，需要先手工打乱再指定validation_split，否则可能会出现验证集样本不均匀。 
+•  validation_data：形式为（X，y）的tuple，是指定的验证集。此参数将覆盖validation_spilt。 
+•  shuffle：布尔值或字符串，一般为布尔值，表示是否在训练过程中随机打乱输入样本的顺序。若为字符串“batch”，则是用来处理HDF5数据的特殊情况，它将在batch内部将数据打乱。 
+•  class_weight：字典，将不同的类别映射为不同的权值，该参数用来在训练过程中调整损失函数（只能用于训练） 
+•  sample_weight：权值的numpy array，用于在训练时调整损失函数（仅用于训练）。可以传递一个1D的与样本等长的向量用于对样本进行1对1的加权，或者在面对时序数据时，传递一个的形式为（samples，sequence_length）的矩阵来为每个时间步上的样本赋不同的权。这种情况下请确定在编译模型时添加了sample_weight_mode=’temporal’。 
+•  initial_epoch: 从该参数指定的epoch开始训练，在继续之前的训练时有用。
+fit函数返回一个History的对象，其History.history属性记录了损失函数和其他指标的数值随epoch变化的情况，如果有验证集的话，也包含了验证集的这些指标变化情况
 
-## 实战应用
-
-经过对赛题的分析，我们把任务分成四个小任务，首先第一步是：
-
-### 1.数据读取与处理
-
-数据是CSV文件，1到6000为按时间序列连续采样的振动信号数值，每行数据是一个样本，共792条数据，第一列id字段为样本编号，最后一列label字段为标签数据，即轴承的工作状态，用数字0到9表示。
 
-**数据处理函数定义：**
+卷积层尺寸的计算原理
+	输入矩阵格式：四个维度，依次为：样本数、图像高度、图像宽度、图像通道数
+	输出矩阵格式：与输出矩阵的维度顺序和含义相同，但是后三个维度（图像高度、图像宽度、图像通道数）的尺寸发生变化。
+	权重矩阵（卷积核）格式：同样是四个维度，但维度的含义与上面两者都不同，为：卷积核高度、卷积核宽度、输入通道数、输出通道数（卷积核个数）
+	输入矩阵、权重矩阵、输出矩阵这三者之间的相互决定关系
+	卷积核的输入通道数（in depth）由输入矩阵的通道数所决定。（红色标注）
+	输出矩阵的通道数（out depth）由卷积核的输出通道数所决定。（绿色标注）
+	输出矩阵的高度和宽度（height, width）这两个维度的尺寸由输入矩阵、卷积核、扫描方式所共同决定。计算公式如下。（蓝色标注）
 
-```python
 
-import keras
-from scipy.io import loadmat
-import matplotlib.pyplot as plt
-import glob
-import numpy as np
-import pandas as pd
-import math
-import os
-from keras.layers import *
-from keras.models import *
-from keras.optimizers import *
-import numpy as np
+* 注：以下计算演示均省略掉了 Bias ，严格来说其实每个卷积核都还有一个 Bias 参数。
 
-MANIFEST_DIR = "Bear_data/train.csv"
-Batch_size = 20
-Long = 792
-Lens = 640
+标准卷积计算举例
+以 AlexNet 模型的第一个卷积层为例，
+- 输入图片的尺寸统一为 227 x 227 x 3 （高度 x 宽度 x 颜色通道数），
+- 本层一共具有96个卷积核，
+- 每个卷积核的尺寸都是 11 x 11 x 3。
+- 已知 stride = 4， padding = 0，
+- 假设 batch_size = 256，
+- 则输出矩阵的高度/宽度为 (227 - 11) / 4 + 1 = 55
 
-#把标签转成oneHot
-def convert2oneHot(index,Lens):
-    hot = np.zeros((Lens,))
-    hot[int(index)] = 1
-    return(hot)
 
-def xs_gen(path=MANIFEST_DIR,batch_size = Batch_size,train=True,Lens=Lens):
+1 x 1 卷积计算举例
+后期 GoogLeNet、ResNet 等经典模型中普遍使用一个像素大小的卷积核作为降低参数复杂度的手段。
+从下面的运算可以看到，其实 1 x 1 卷积没有什么神秘的，其作用就是将输入矩阵的通道数量缩减后输出（512 降为 32），并保持它在宽度和高度维度上的尺寸（227 x 227）。
 
-    img_list = pd.read_csv(path)
-    if train:
-        img_list = np.array(img_list)[:Lens]
-        print("Found %s train items."%len(img_list))
-        print("list 1 is",img_list[0,-1])
-        steps = math.ceil(len(img_list) / batch_size)    # 确定每轮有多少个batch
-    else:
-        img_list = np.array(img_list)[Lens:]
-        print("Found %s test items."%len(img_list))
-        print("list 1 is",img_list[0,-1])
-        steps = math.ceil(len(img_list) / batch_size)    # 确定每轮有多少个batch
-    while True:
-        for i in range(steps):
 
-            batch_list = img_list[i * batch_size : i * batch_size + batch_size]
-            np.random.shuffle(batch_list)
-            batch_x = np.array([file for file in batch_list[:,1:-1]])
-            batch_y = np.array([convert2oneHot(label,10) for label in batch_list[:,-1]])
+全连接层计算举例
+实际上，全连接层也可以被视为是一种极端情况的卷积层，其卷积核尺寸就是输入矩阵尺寸，因此输出矩阵的高度和宽度尺寸都是1。
 
-            yield batch_x, batch_y
 
-TEST_MANIFEST_DIR = "Bear_data/test_data.csv"
+总结下来，其实只需要认识到，虽然输入的每一张图像本身具有三个维度，但是对于卷积核来讲依然只是一个一维向量。卷积核做的，其实就是与感受野范围内的像素点进行点积（而不是矩阵乘法）。
 
-def ts_gen(path=TEST_MANIFEST_DIR,batch_size = Batch_size):
+附：TensorFlow 中卷积层的简单实现
+def conv_layer(x, out_channel, k_size, stride, padding):
+    in_channel = x.shape[3].value
+    w = tf.Variable(tf.truncated_normal([k_size, k_size, in_channel, out_channel], mean=0, stddev=stddev))
+    b = tf.Variable(tf.zeros(out_channel))
+    y = tf.nn.conv2d(x, filter=w, strides=[1, stride, stride, 1], padding=padding)
+    y = tf.nn.bias_add(y, b)
+    y = tf.nn.relu(y)
+    return x
+	输入 x：[batch, height, width, in_channel]
+	权重 w：[height, width, in_channel, out_channel]
+	输出 y：[batch, height, width, out_channel]
 
-    img_list = pd.read_csv(path)
 
-    img_list = np.array(img_list)[:Lens]
-    print("Found %s train items."%len(img_list))
-    print("list 1 is",img_list[0,-1])
-    steps = math.ceil(len(img_list) / batch_size)    # 确定每轮有多少个batch
-    while True:
-        for i in range(steps):
+激活函数（Activation Function），就是在人工神经网络的神经元上运行的函数，负责将神经元的输入映射到输出端。引入激活函数是为了增加神经网络模型的非线性。没有激活函数的每层都相当于矩阵相乘。就算你叠加了若干层之后，无非还是个矩阵相乘罢了。
 
-            batch_list = img_list[i * batch_size : i * batch_size + batch_size]
-            #np.random.shuffle(batch_list)
-            batch_x = np.array([file for file in batch_list[:,1:]])
-            #batch_y = np.array([convert2oneHot(label,10) for label in batch_list[:,-1]])
+如果不用激活函数，每一层输出都是上层输入的线性函数，无论神经网络有多少层，输出都是输入的线性组合，这种情况就是最原始的感知机（Perceptron）。如果使用的话，激活函数给神经元引入了非线性因素，使得神经网络可以任意逼近任何非线性函数，这样神经网络就可以应用到众多的非线性模型中。
 
-            yield batch_x
-```
+Relu激活函数（The Rectified Linear Unit）修正线性单元，用于隐层神经元输出。公式如下
 
-![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")
 
-**读取一条数据进行显示**
 
-```python
-if __name__ == "__main__":
-    if Show_one == True:
-        show_iter = xs_gen()
-        for x,y in show_iter:
-            x1 = x[0]
-            y1 = y[0]
-            break
-        print(y)
-        print(x1.shape)
-        plt.plot(x1)
-        plt.show()
-```
-
-![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")
-
-  
-
-![](https://img-blog.csdnimg.cn/20190411181731183.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3hpYW9zb25nc2hpbmU=,size_16,color_FFFFFF,t_70)![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")​
-
-我们由上述信息可以看出每种导联都是由6000个点组成的列表，大家可以理解为mnist展开为一维后的形状
-
-  
-
-**原始训练数据乱序操作**
-
-```python
-def create_csv(TXT_DIR=MANIFEST_DIR):
-    lists = pd.read_csv(TXT_DIR,sep=r"\t",header=None)
-    lists = lists.sample(frac=1)
-    lists.to_csv(MANIFEST_DIR,index=None)
-    print("Finish save csv")
-```
-
-![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")
-
-  
-
-数据读取的方式我采用的是生成器的方式，这样可以按batch读取，加快训练速度，大家也可以采用一下全部读取，看个人的习惯了。关于生成器介绍，大家可以参考我的这篇博文
-
-[[开发技巧]·深度学习使用生成器加速数据读取与训练简明教程（TensorFlow，pytorch，keras）](https://blog.csdn.net/xiaosongshine/article/details/89213360)
-
-  
-
-### 2.网络模型搭建
-
-数据我们处理好了，后面就是模型的搭建了，我使用keras搭建的，操作简单便捷，tf，pytorch，sklearn大家可以按照自己喜好来。
-
-网络模型可以选择CNN，RNN，Attention结构，或者多模型的融合，抛砖引玉，此Baseline采用的一维CNN方式，[一维CNN学习地址](https://blog.csdn.net/xiaosongshine/article/details/88614450)
-
-**模型搭建**
-
-```python
-TIME_PERIODS = 6000
-def build_model(input_shape=(TIME_PERIODS,),num_classes=10):
-    model = Sequential()
-    model.add(Reshape((TIME_PERIODS, 1), input_shape=input_shape))
-    model.add(Conv1D(16, 8,strides=2, activation='relu',input_shape=(TIME_PERIODS,1)))
-
-    model.add(Conv1D(16, 8,strides=2, activation='relu',padding="same"))
-    model.add(MaxPooling1D(2))
-
-    model.add(Conv1D(64, 4,strides=2, activation='relu',padding="same"))
-    model.add(Conv1D(64, 4,strides=2, activation='relu',padding="same"))
-    model.add(MaxPooling1D(2))
-    model.add(Conv1D(256, 4,strides=2, activation='relu',padding="same"))
-    model.add(Conv1D(256, 4,strides=2, activation='relu',padding="same"))
-    model.add(MaxPooling1D(2))
-    model.add(Conv1D(512, 2,strides=1, activation='relu',padding="same"))
-    model.add(Conv1D(512, 2,strides=1, activation='relu',padding="same"))
-    model.add(MaxPooling1D(2))
-
-    model.add(GlobalAveragePooling1D())
-    model.add(Dropout(0.3))
-    model.add(Dense(num_classes, activation='softmax'))
-    return(model)
-
-```
-
-![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")
-
-**用model.summary()输出的网络模型为**
-
-```bash
-_________________________________________________________________
-Layer (type)                 Output Shape              Param #
-=================================================================
-reshape_1 (Reshape)          (None, 6000, 1)           0
-_________________________________________________________________
-conv1d_1 (Conv1D)            (None, 2997, 16)          144
-_________________________________________________________________
-conv1d_2 (Conv1D)            (None, 1499, 16)          2064
-_________________________________________________________________
-max_pooling1d_1 (MaxPooling1 (None, 749, 16)           0
-_________________________________________________________________
-conv1d_3 (Conv1D)            (None, 375, 64)           4160
-_________________________________________________________________
-conv1d_4 (Conv1D)            (None, 188, 64)           16448
-_________________________________________________________________
-max_pooling1d_2 (MaxPooling1 (None, 94, 64)            0
-_________________________________________________________________
-conv1d_5 (Conv1D)            (None, 47, 256)           65792
-_________________________________________________________________
-conv1d_6 (Conv1D)            (None, 24, 256)           262400
-_________________________________________________________________
-max_pooling1d_3 (MaxPooling1 (None, 12, 256)           0
-_________________________________________________________________
-conv1d_7 (Conv1D)            (None, 12, 512)           262656
-_________________________________________________________________
-conv1d_8 (Conv1D)            (None, 12, 512)           524800
-_________________________________________________________________
-max_pooling1d_4 (MaxPooling1 (None, 6, 512)            0
-_________________________________________________________________
-global_average_pooling1d_1 ( (None, 512)               0
-_________________________________________________________________
-dropout_1 (Dropout)          (None, 512)               0
-_________________________________________________________________
-dense_1 (Dense)              (None, 10)                5130
-=================================================================
-Total params: 1,143,594
-Trainable params: 1,143,594
-Non-trainable params: 0
-_________________________________________________________________
-None
-```
-
-![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")
-
-训练参数比较少，大家可以根据自己想法更改。
-
-### 3.网络模型训练
-
-**模型训练**
-
-```python
-Show_one = True
-
-Train = True
-
-if __name__ == "__main__":
-    if Show_one == True:
-        show_iter = xs_gen()
-        for x,y in show_iter:
-            x1 = x[0]
-            y1 = y[0]
-            break
-        print(y)
-        print(x1.shape)
-        plt.plot(x1)
-        plt.show()
+函数图像如下
+　　
 
 
-    if Train == True:
-        train_iter = xs_gen()
-        val_iter = xs_gen(train=False)
 
-        ckpt = keras.callbacks.ModelCheckpoint(
-            filepath='best_model.{epoch:02d}-{val_loss:.4f}.h5',
-            monitor='val_loss', save_best_only=True,verbose=1)
+从ReLU函数图像可知，它是分段线性函数，所有的负值和0为0，所有的正值不变，这种操作被称为单侧抑制。ReLU函数图像其实也可以不是这个样子，只要能起到单侧抑制的作用，对原图翻转、镜像都可以。
 
-        model = build_model()
-        opt = Adam(0.0002)
-        model.compile(loss='categorical_crossentropy',
-                    optimizer=opt, metrics=['accuracy'])
-        print(model.summary())
+当训练一个深度分类模型的时候，和目标相关的特征往往也就那么几个，因此通过ReLU实现稀疏后的模型能够更好地挖掘相关特征，拟合训练数据。正因为有了这单侧抑制，才使得神经网络中的神经元也具有了稀疏激活性。尤其体现在深度神经网络模型(如CNN)中，当模型增加N层之后，理论上ReLU神经元的激活率将降低2的N次方倍。
 
-        model.fit_generator(
-            generator=train_iter,
-            steps_per_epoch=Lens//Batch_size,
-            epochs=50,
-            initial_epoch=0,
-            validation_data = val_iter,
-            nb_val_samples = (Long - Lens)//Batch_size,
-            callbacks=[ckpt],
-            )
-        model.save("finishModel.h5")
-    else:
-        test_iter = ts_gen()
-        model = load_model("best_model.49-0.00.h5")
-        pres = model.predict_generator(generator=test_iter,steps=math.ceil(528/Batch_size),verbose=1)
-        print(pres.shape)
-        ohpres = np.argmax(pres,axis=1)
-        print(ohpres.shape)
-        #img_list = pd.read_csv(TEST_MANIFEST_DIR)
-        df = pd.DataFrame()
-        df["id"] = np.arange(1,len(ohpres)+1)
-        df["label"] = ohpres
-        df.to_csv("submmit.csv",index=None)
+不用simgoid和tanh作为激活函数，而用ReLU作为激活函数的原因是：加速收敛。因为sigmoid和tanh都是饱和(saturating)的。何为饱和？可理解为把这两者的函数曲线和导数曲线plot出来：他们的导数都是倒过来的碗状，也就是越接近目标，对应的导数越小。而ReLu的导数对于大于0的部分恒为1。于是ReLU确实可以在BP的时候能够将梯度很好地传到较前面的网络。
 
+一般情况下，使用ReLU会比较好
 
-```
+1、使用 ReLU，就要注意设置 learning rate，不要让网络训练过程中出现很多 “dead” 神经元；
 
-![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")
+2、如果“dead”无法解决，可以尝试 Leaky ReLU、PReLU 、RReLU等Relu变体来替代ReLU；
 
-**训练过程输出（最优结果：32/32 [==============================] - 1s 33ms/step - loss: 0.0098 - acc: 0.9969 - val_loss: 0.0172 - val_acc: 0.9924）**
+3、不建议使用 sigmoid，如果一定要使用，也可以用 tanh来替代
 
-```bash
-Epoch 46/50
-32/32 [==============================] - 1s 33ms/step - loss: 0.0638 - acc: 0.9766 - val_loss: 0.2460 - val_acc: 0.9242
 
-Epoch 00046: val_loss did not improve from 0.00354
-Epoch 47/50
-32/32 [==============================] - 1s 33ms/step - loss: 0.0426 - acc: 0.9859 - val_loss: 0.0641 - val_acc: 0.9848
+1D 卷积层 (例如时序卷积)。
+该层创建了一个卷积核，该卷积核以 单个空间（或时间）维上的层输入进行卷积， 以生成输出张量。 如果 use_bias 为 True， 则会创建一个偏置向量并将其添加到输出中。 最后，如果 activation 不是 None，它也会应用于输出。
+当使用该层作为模型第一层时，需要提供 input_shape 参数（整数元组或 None），例如， (10, 128) 表示 10 个 128 维的向量组成的向量序列， (None, 128) 表示 128 维的向量组成的变长序列。
+参数
+	filters: 整数，输出空间的维度 （即卷积中滤波器的输出数量）。
+	kernel_size: 一个整数，或者单个整数表示的元组或列表， 指明 1D 卷积窗口的长度。
+	strides: 一个整数，或者单个整数表示的元组或列表， 指明卷积的步长。 指定任何 stride 值 != 1 与指定 dilation_rate 值 != 1 两者不兼容。
+	padding: "valid", "causal" 或 "same" 之一 (大小写敏感) "valid" 表示「不填充」。 "same" 表示填充输入以使输出具有与原始输入相同的长度。 "causal" 表示因果（膨胀）卷积， 例如，output[t] 不依赖于 input[t+1:]， 在模型不应违反时间顺序的时间数据建模时非常有用。 详见 WaveNet: A Generative Model for Raw Audio, section 2.1。
+	data_format: 字符串, "channels_last" (默认) 或 "channels_first" 之一。输入的各个维度顺序。 "channels_last" 对应输入尺寸为 (batch, steps, channels) (Keras 中时序数据的默认格式) 而 "channels_first" 对应输入尺寸为 (batch, channels, steps)。
+	dilation_rate: 一个整数，或者单个整数表示的元组或列表，指定用于膨胀卷积的膨胀率。 当前，指定任何 dilation_rate 值 != 1 与指定 stride 值 != 1 两者不兼容。
+	activation: 要使用的激活函数 (详见 activations)。 如未指定，则不使用激活函数 (即线性激活： a(x) = x)。
+	use_bias: 布尔值，该层是否使用偏置向量。
+	kernel_initializer: kernel 权值矩阵的初始化器 (详见 initializers)。
+	bias_initializer: 偏置向量的初始化器 (详见 initializers)。
+	kernel_regularizer: 运用到 kernel 权值矩阵的正则化函数 (详见 regularizer)。
+	bias_regularizer: 运用到偏置向量的正则化函数 (详见 regularizer)。
+	activity_regularizer: 运用到层输出（它的激活值）的正则化函数 (详见 regularizer)。
+	kernel_constraint: 运用到 kernel 权值矩阵的约束函数 (详见 constraints)。
+	bias_constraint: 运用到偏置向量的约束函数 (详见 constraints)。
+	loss是训练集的损失值，val_loss是测试集的损失值
+	以下是loss与val_loss的变化反映出训练走向的规律总结：
+	train loss 不断下降，test loss不断下降，说明网络仍在学习;（最好的）
+	train loss 不断下降，test loss趋于不变，说明网络过拟合;（max pool或者正则化）
+	train loss 趋于不变，test loss不断下降，说明数据集100%有问题;（检查dataset）
+	train loss 趋于不变，test loss趋于不变，说明学习遇到瓶颈，需要减小学习率或批量数目;（减少学习率）
+	train loss 不断上升，test loss不断上升，说明网络结构设计不当，训练超参数设置不当，数据集经过清洗等问题。（最不好的情况）
+loss 损失函数值，与你定义的损失函数值相关
 
-Epoch 00047: val_loss did not improve from 0.00354
-Epoch 48/50
-32/32 [==============================] - 1s 33ms/step - loss: 0.0148 - acc: 0.9969 - val_loss: 0.0072 - val_acc: 1.0000
+acc 准确率
+mean_absolute_error 平均绝对误差
+前面带val_表示你的模型在验证集上进行验证时输出的这三个值，验证在每个epoch后进行
 
-Epoch 00048: val_loss did not improve from 0.00354
-Epoch 49/50
-32/32 [==============================] - 1s 34ms/step - loss: 0.0061 - acc: 0.9984 - val_loss: 0.0404 - val_acc: 0.9857
+另外。还有几点训练技巧：
 
-Epoch 00049: val_loss did not improve from 0.00354
-Epoch 50/50
-32/32 [==============================] - 1s 33ms/step - loss: 0.0098 - acc: 0.9969 - val_loss: 0.0172 - val_acc: 0.9924
-```
+1、拓展函数不要怕极端，极端的拓展函数有利于学到目标真正的特征。
 
-![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")
+2、使用灰度图作为训练集？如果以纹理为主，使用灰度图，灰度图能增强网络的鲁棒性，因为可以减少光照的影响，但是会损失颜色信息，可以用结果看看到底该使用哪种图？
 
-###   
+3、使用小的分辨率图片可能错过某些特征，尤其是在小数据集的时候，所以可能的话使用大数据集，或者提高分辨率，根据使用者的目标。
 
-最后是进行预测与提交，代码在上面大家可以自己运行一下。
 
-**预测结果**
 
-排行榜：第24名 f1score 0.99780
 
-![](https://img-blog.csdnimg.cn/20190411225147290.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3hpYW9zb25nc2hpbmU=,size_16,color_FFFFFF,t_70)![](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw== "点击并拖拽以移动")​
 
-  
+ 
+判断数据是否有缺失值，若有，则置为零，由于数据变化幅度小，且变化明显，所以设0，
+箱型图：又称为盒须图、盒式图、盒状图或箱线图，是一种用作显示一组数据分散情况资料的统计图
+包含一组数据的：最大值、最小值、中位数、上四分位数（Q1）、下四分位数（Q3）、异常值
+① 中位数 → 一组数据平均分成两份，中间的数
+② 下四分位数Q1 → 是将序列平均分成四份，计算(n+1)/4与(n-1)/4两种，一般使用(n+1)/4
+③ 上四分位数Q3 → 是将序列平均分成四份，计算(1+n)/4*3=6.75
+④ 内限 → 最大值区间Q3+1.5IQR,最小值区间Q1-1.5IQR （IQR=Q3-Q1）
+⑤ 外限 →最大值区间Q3+3IQR,最小值区间Q1-3IQR （IQR=Q3-Q1）
+⑥ 异常值 → 内限之外 - 中度异常，外限之外 - 极度异常
+ 
+ 有些离群点很多是因为噪声太多，所以我们对其降噪
+小波去噪一下，先由傅里叶变化看出图像或多或少包含很多噪声，但是总体由三种不同频谱组成，同时一些细小的频率也可能是故障频率
+其主要特征应该就是最高频谱
 
-  
+ 
+小波去噪后的没有显著区别，所以我们又进行了带通滤波，以下是1/10滤波和1/5的以下滤波
+ 
+ 
+ 
+ 
+ 
+异常点剔除原则，先归一化，即标准正态化，再利用3σ原则剔除异常数据，反归一化即可还原数据
 
-  
+最后就先小波平滑，再1/5傅里叶，最后CNN训练
+但是不遵守采样定理了
+ 事实证明还真行不通。。。不过从图上看仿佛可以用关联分析，先傅里叶变化之后再使用关联分析，对每个频率的波形进行关联分析，
 
-##   
+事情出现了转机，我把参数放大100倍仿佛又有用了，而且平滑过后训练速度变快了许多，但是准确率不高，最后还是出现了过拟合，acc下降了
+ 
 
-## **展望**
+参数放大1000倍batchsize使用40，训练收敛速度变快了前20轮训练就完成了85%的acc
+ 
+但是准确率不及直接将原始参数送入训练的模型，说明模型能自动学习出准确的最终结果96% 
+结合不及直接用数据训练的（也可能神经网络层的参数设计没有针对处理后数据优化的
 
-此Baseline采用最简单的一维卷积达到了99.8%测试准确率，这体现了一维卷积在一维时序序列的应用效果。
+另外对于信号数据的离群点我并没有简单采取置零或者其他的操作，因为这些异常点可能包含信号特征
 
-hope this helps
-
-> 个人网站--> [http://www.yansongsong.cn](http://www.yansongsong.cn/)
-> 
-> 项目github地址：[https://github.com/xiaosongshine/bearing_detection_by_conv1d](https://github.com/xiaosongshine/bearing_detection_by_conv1d)
-
-**欢迎Fork+Star，觉得有用的话，麻烦小小鼓励一下 ><**
+模型形状
+ 
+基于规则的分类，使得神经网络具有解释性，卷积层和傅里叶变化的目的是一样的，所以不需要再进行傅里叶变化滤波了，这种大型的数据很适合深度学习
