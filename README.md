@@ -1,8 +1,7 @@
-# Roar
+# Caltech256 classifier
 ***
-## My first time using github > ^ <
-Uploaded my first ML homework in NUDT
+## A simple Sequential model to train with low memory use
 
+dependent: keras,pandas and sklearn
 
-1. pla model using python
-2. svm model using python
+JUST Run caltech256_main.py
